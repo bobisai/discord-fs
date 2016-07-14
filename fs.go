@@ -82,7 +82,6 @@ func (fs *DiscordFS) GetAttr(name string, context *fuse.Context) (*fuse.Attr, fu
 	attr := &fuse.Attr{}
 	fileDesc.GetAttr(attr)
 
-	log.Println(attr.Size)
 	return attr, fuse.OK
 }
 
@@ -242,6 +241,54 @@ func (fs *DiscordFS) Mkdir(name string, mode uint32, context *fuse.Context) fuse
 
 	parent.Cache = encoded
 	return parent.Flush()
+}
+
+func (fs *DiscordFS) Rmdir(name string, context *fuse.Context) (code fuse.Status) {
+	log.Println("RMDIR", name)
+	err := fs.Delete(name)
+	if err != nil {
+		log.Println("Failed deleting", err)
+		return fuse.EIO
+	}
+	return fuse.OK
+}
+
+func (fs *DiscordFS) Unlink(name string, context *fuse.Context) (code fuse.Status) {
+	log.Println("UNLINK", name)
+	log.Println("RMDIR", name)
+	err := fs.Delete(name)
+	if err != nil {
+		log.Println("Failed deleting", err)
+		return fuse.EIO
+	}
+	return fuse.OK
+}
+
+func (fs *DiscordFS) Delete(name string) error {
+	parent, err := fs.GetFileParent(name)
+	if err != nil {
+		return err
+	}
+
+	entries, err := parent.GetDirEntries()
+	if err != nil {
+		return err
+	}
+
+	for k, entry := range entries {
+		if entry.Path == name {
+			// remove
+			entries = append(entries[:k], entries[k+1:]...)
+			serialized, err := json.Marshal(entries)
+			if err != nil {
+				return err
+			}
+			parent.Cache = serialized
+			parent.Flush()
+			return nil
+		}
+	}
+	return ErrFileNotFound
 }
 
 func (fs *DiscordFS) GetFileParent(name string) (*FileDesc, error) {
