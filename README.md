@@ -1,33 +1,21 @@
 # discord-fs
 
-A fuse filesystem using discord as storage backend because why not
+A fuse filesystem using discord as storage device
+
+This is my first filesystem, and its also using discord as the storage device because why have speed and reliability when you can have uh... holdon im getting a phone call...
 
 ## How to use
 
-To mount you have to give discord-fs a bot token
+You will need a server and a bot token, discord-fs will use the default channel in your server.
 
-# INFO BELOW IS OUTDATED WILL UPDATE IN FUTURE
+discord-fs "token" "serverid" "mountpoint"
 
 ## Speed 
 
-disord-fs tries to encode 4 bytes into per character so with discord's 2k charcacter limit thats 8k bytes per message
+Theoretical speeds are roughly 1500 bytes/s write and 150,000 bytes/s read
 
-The expected write speed is then 8k * the ratelimit
-And the read speed is 8k*100 * ratelimit
+Reason for this is discord-fs encodes files in base64(I'm planning to experiment with encoding multiple bytes into unicode characters in the future) and files span over multiple messages where each message can hold a maximum of 1500 bytes, we can only send one message at a time but retrieve 100  
 
-Editing a file is a bit trickier, if increase the amount of messages required to store this file and its not the last one in a channel, it will have to delete all the original messages for the file and recreate them at the bottom, aswell as update all references to this file
+## Behind the scenes
 
-## The index 
-
-FileDescriptors are json encoded for readability and ease of use (Probably move to sumething like flatbuffers later)
-
-It's seperated into folders, which contains entries
-
-An entry consists of a `name`, `start message id`, `channel id`, `folder flag` and `count`
-
-Start message id and channel id is used to reference the start message, where the file begins
-Count is how many messages this file spans over
-and folder flag is set if the file is a folder, channel id may also be ignored then since all folders are contained in the index channel
-
-Each folder a always has 2 entries (excpept for the root folder, only has 1)
-which is the current folder's entry, and the parent folder's entry, in that order
+It's pretty simple. Each file has an inode which contains the various attributes. the most important ones being the message handle (message id right before data) and the amount of messages it spans over. the root inode is in the general channel topic and from there on out it can be nested to infinity, but the more you nest the more requests it takes to do stuff within that directory.
