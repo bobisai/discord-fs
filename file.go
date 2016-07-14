@@ -195,29 +195,51 @@ func (f *FileDesc) Read(dest []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		return nil, fuse.EBADF
 	}
 
-	offEncoded := int64(fileDataEncoder.EncodedLen(int(off)))
+	decoded := make([]byte, fileDataEncoder.DecodedLen(len(data)))
+	n, err := fileDataEncoder.Decode(decoded, data)
+	if err != nil {
+		log.Println("Failed decoding data")
+		return nil, fuse.EBADF
+	}
+	decoded = decoded[:n] // Baibai padding
 
-	if offEncoded >= int64(len(data)) {
+	if off >= int64(len(decoded)) {
 		return nil, fuse.EINVAL
 	}
 
-	toRead := int64(fileDataEncoder.EncodedLen(len(dest)))
-	if toRead+offEncoded > int64(len(data)) {
-		toRead = int64(len(data)) - offEncoded
+	toRead := int64(len(dest))
+	if toRead+off >= int64(len(decoded)) {
+		toRead = int64(len(decoded)) - off
 		log.Println("Bigger than input")
 	}
 
-	toDecode := data[offEncoded : offEncoded+toRead]
-	n, err := fileDataEncoder.Decode(dest, toDecode)
-	if err != nil {
-		log.Println("Failed decoding data", err)
-		return nil, fuse.EBADF
-	}
-
-	realLen := n
-	log.Println("REAl len", realLen, len(toDecode), dest[:realLen])
-	rs := NewReadResult(dest[:realLen], realLen)
+	copy(dest, decoded[off:off+toRead])
+	rs := NewReadResult(dest, int(toRead))
 	return rs, fuse.OK
+
+	// offEncoded := int64(fileDataEncoder.EncodedLen(int(off)))
+
+	// if offEncoded >= int64(len(data)) {
+	// 	return nil, fuse.EINVAL
+	// }
+
+	// toRead := int64(fileDataEncoder.EncodedLen(len(dest)))
+	// if toRead+offEncoded > int64(len(data)) {
+	// 	toRead = int64(len(data)) - offEncoded
+	// 	log.Println("Bigger than input")
+	// }
+
+	// toDecode := data[offEncoded : offEncoded+toRead]
+	// n, err := fileDataEncoder.Decode(dest, toDecode)
+	// if err != nil {
+	// 	log.Println("Failed decoding data", err)
+	// 	return nil, fuse.EBADF
+	// }
+
+	// realLen := n
+	// log.Println("REAl len", realLen, len(toDecode), dest[:realLen])
+	// rs := NewReadResult(dest[:realLen], realLen)
+	// return rs, fuse.OK
 }
 
 func (f *FileDesc) Write(data []byte, off int64) (written uint32, code fuse.Status) {
