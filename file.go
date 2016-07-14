@@ -169,8 +169,32 @@ func (f *FileDesc) WriteInode() {
 	}
 	parentDesc.Cache = serialized
 	parentDesc.Flush()
+}
 
-	//parentDesc := f.FS.GetFileParent(f.Path)
+func (f *FileDesc) UpdatePath(oldPath, newPath string) error {
+	f.Path = strings.Replace(f.Path, oldPath, newPath, 1)
+	if f.IsDir {
+		entries, err := f.GetDirEntries()
+		if err != nil {
+			return err
+		}
+
+		for _, entry := range entries {
+			err := entry.UpdatePath(oldPath, newPath)
+			if err != nil {
+				return err
+			}
+		}
+		serialized, err := json.Marshal(entries)
+		if err != nil {
+			return err
+		}
+
+		f.Cache = serialized
+		f.Flush()
+	}
+
+	return nil
 }
 
 ///////////////////////////
@@ -216,30 +240,6 @@ func (f *FileDesc) Read(dest []byte, off int64) (fuse.ReadResult, fuse.Status) {
 	copy(dest, decoded[off:off+toRead])
 	rs := NewReadResult(dest, int(toRead))
 	return rs, fuse.OK
-
-	// offEncoded := int64(fileDataEncoder.EncodedLen(int(off)))
-
-	// if offEncoded >= int64(len(data)) {
-	// 	return nil, fuse.EINVAL
-	// }
-
-	// toRead := int64(fileDataEncoder.EncodedLen(len(dest)))
-	// if toRead+offEncoded > int64(len(data)) {
-	// 	toRead = int64(len(data)) - offEncoded
-	// 	log.Println("Bigger than input")
-	// }
-
-	// toDecode := data[offEncoded : offEncoded+toRead]
-	// n, err := fileDataEncoder.Decode(dest, toDecode)
-	// if err != nil {
-	// 	log.Println("Failed decoding data", err)
-	// 	return nil, fuse.EBADF
-	// }
-
-	// realLen := n
-	// log.Println("REAl len", realLen, len(toDecode), dest[:realLen])
-	// rs := NewReadResult(dest[:realLen], realLen)
-	// return rs, fuse.OK
 }
 
 func (f *FileDesc) Write(data []byte, off int64) (written uint32, code fuse.Status) {
@@ -358,6 +358,7 @@ func (f *FileDesc) GetAttr(out *fuse.Attr) fuse.Status {
 	if f.IsDir {
 		mode = fuse.S_IFDIR
 	}
+
 	log.Println("F GETATTR", out)
 	*out = fuse.Attr{
 		Size: uint64(f.Size),

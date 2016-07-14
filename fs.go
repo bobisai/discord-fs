@@ -73,10 +73,11 @@ func (fs *DiscordFS) GetAttr(name string, context *fuse.Context) (*fuse.Attr, fu
 	fileDesc, err := fs.GetFileDesc(name)
 	if err != nil {
 		if err == ErrFileNotFound {
+			log.Println("Not found...")
 			return nil, fuse.ENOENT
 		}
 		log.Println("Failed getting child", err)
-		return nil, fuse.EIO
+		return nil, fuse.EBADF
 	}
 
 	attr := &fuse.Attr{}
@@ -122,6 +123,7 @@ func (fs *DiscordFS) Open(name string, flags uint32, context *fuse.Context) (fil
 		if err == ErrFileNotFound {
 			return nil, fuse.ENOENT
 		}
+		log.Println("Failed opening file", err)
 		return nil, fuse.EIO
 	}
 
@@ -255,7 +257,6 @@ func (fs *DiscordFS) Rmdir(name string, context *fuse.Context) (code fuse.Status
 
 func (fs *DiscordFS) Unlink(name string, context *fuse.Context) (code fuse.Status) {
 	log.Println("UNLINK", name)
-	log.Println("RMDIR", name)
 	err := fs.Delete(name)
 	if err != nil {
 		log.Println("Failed deleting", err)
@@ -289,6 +290,78 @@ func (fs *DiscordFS) Delete(name string) error {
 		}
 	}
 	return ErrFileNotFound
+}
+
+func (fs *DiscordFS) Rename(oldName string, newName string, context *fuse.Context) (code fuse.Status) {
+	log.Println("RENAME", oldName, newName)
+	parent, err := fs.GetFileParent(oldName)
+	if err != nil {
+		log.Println("Failed getting parent", err)
+		return fuse.EIO
+	}
+
+	var target *FileDesc
+
+	entries, err := parent.GetDirEntries()
+	for k, entry := range entries {
+		if entry.Path == newName {
+			// Remove
+			entries = append(entries[:k], entries[k+1:]...)
+		} else if entry.Path == oldName {
+			target = entry
+		}
+	}
+
+	if target == nil {
+		log.Println("Failed to find target")
+		return fuse.ENOENT
+	}
+	_, newFName := filepath.Split(newName) // Take out the full path
+	target.Name = newFName
+	target.Path = newName
+
+	serialized, err := json.Marshal(entries)
+	if err != nil {
+		log.Println("Failed serializing entries", err)
+		return fuse.EBADF
+	}
+	parent.Cache = serialized
+	code = parent.Flush()
+	if code != fuse.OK {
+		return code
+	}
+
+	if target.IsDir {
+		childEntries, err := target.GetDirEntries()
+		if err != nil {
+			log.Println("Error getting child entries", err)
+			return fuse.EIO
+		}
+
+		for _, entry := range childEntries {
+			err = entry.UpdatePath(oldName, newName)
+			if err != nil {
+				log.Println("Failed updating child path, file will be lost")
+			}
+		}
+
+		serialized, err := json.Marshal(childEntries)
+		if err != nil {
+			log.Println("Failed serializing child entries")
+			return fuse.EBADF
+		}
+
+		target.Cache = serialized
+		return target.Flush()
+	}
+
+	return fuse.OK
+
+	// fileDesc, err := fs.GetFileDesc(oldName)
+	// if err != nil {
+	// 	log.Println("Failed getting filedesc", err)
+	// 	return fuse.EIO
+	// }
 }
 
 func (fs *DiscordFS) GetFileParent(name string) (*FileDesc, error) {
